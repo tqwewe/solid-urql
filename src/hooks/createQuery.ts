@@ -218,12 +218,7 @@ export function createQuery<Data = any, Variables = object>(
   }
 
   const dataAccessor = () => {
-    const nextState = state.nextState
-    const keys = Object.keys(nextState.data || [])
-    if (keys.length > 0) {
-      return (nextState.data as any)[keys[0]] as Data
-    }
-    return undefined
+    return state.nextState?.data as Data
   }
 
   return [dataAccessor, () => state.nextState, executeQuery]
