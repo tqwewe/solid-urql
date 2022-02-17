@@ -1,6 +1,6 @@
 {
   "name": "solid-urql",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "URQL support for Solid JS projects.",
   "homepage": "https://github.com/Acidic9/solid-urql#readme",
   "repository": "git@github.com:Acidic9/solid-urql.git",
