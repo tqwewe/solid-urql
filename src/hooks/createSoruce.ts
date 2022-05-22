@@ -50,9 +50,9 @@ export function createSource<T, R>(
   }
   const [state, setState] = createStore<R>(store());
 
-  createEffect(on((): any => input$, (input$$) => {
-    pipe(
-      transform(input$$, untrack<R>(() => state)),
+  createEffect(() => {
+    return pipe(
+      transform(input$, untrack<R>(() => state)),
       subscribe(value => {
         if (!currentInit) {
           setState(prevValue => {
@@ -61,6 +61,6 @@ export function createSource<T, R>(
         }
       })
     ).unsubscribe;
-  }));
+  });
   return [state, updateInput];
 }

@@ -1,5 +1,7 @@
 import { DocumentNode } from 'graphql'
-import { createEffect } from 'solid-js'
+import { createEffect, createSignal } from 'solid-js'
+
+import isEqual from 'lodash.isequal';
 
 import { pipe, concat, fromValue, switchMap, map, scan } from 'wonka';
 
@@ -57,6 +59,10 @@ export function createSubscription<
       });
   };
 
+  // There is some weirdness happening with concat > pipe > fromValue
+  // so this keeps track of wether or not the fetching was started at some point
+  const [fetchingStarted, setFetchingStarted] = createSignal(false);
+
   const subscription$ = args.pause ? null : makeSubscription$();
 
   const [state$, update] = createSource(
@@ -86,6 +92,15 @@ export function createSubscription<
         }),
         scan(
           (result: CreateSubscriptionState<Result, Variables>, partial: any) => {
+
+            if (isEqual(partial, { fetching: true, stale: false })) {
+              if (!fetchingStarted()) {
+                setFetchingStarted(true);
+              } else if (result.data) {
+                partial.fetching = false;
+              }
+            }
+
             // If a handler has been passed, it's used to merge new data in
             const data =
               partial.data !== undefined
