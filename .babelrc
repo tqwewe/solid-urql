@@ -1,4 +1,17 @@
 {
-  "presets": ["solid", "@babel/preset-typescript"],
-  "plugins": ["@babel/plugin-proposal-optional-chaining"]
+  "presets": [
+    [
+      "@babel/preset-env",
+      {
+        "targets": {
+          "node": "current"
+        }
+      }
+    ],
+    "solid",
+    "@babel/preset-typescript"
+  ],
+  "plugins": [
+    "@babel/plugin-proposal-optional-chaining"
+  ]
 }

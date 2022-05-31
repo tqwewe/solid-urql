@@ -23,9 +23,9 @@ export const useClient = (): Client => {
 
     console.warn(
       "Default Client: No client has been specified using urql's Provider." +
-        'This means that urql will be falling back to defaults including making ' +
-        'requests to `/graphql`.\n' +
-        "If that's not what you want, please create a client and add a Provider."
+      'This means that urql will be falling back to defaults including making ' +
+      'requests to `/graphql`.\n' +
+      "If that's not what you want, please create a client and add a Provider."
     )
   }
 

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "baseUrl": "./",
     "target": "es2015",
     "allowJs": true,
     "skipLibCheck": true,
@@ -15,7 +16,21 @@
     "emitDeclarationOnly": true,
     "noEmit": false,
     "jsx": "preserve",
-    "jsxImportSource": "solid-js"
+    "jsxImportSource": "solid-js",
+    "types": [
+      "node",
+      "jest"
+    ],
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "scripts",
+    "node_modules"
+  ]
 }

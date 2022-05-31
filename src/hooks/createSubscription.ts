@@ -1,8 +1,8 @@
 import { DocumentNode } from 'graphql'
-import { createEffect, createMemo, untrack } from 'solid-js'
-import { createStore } from 'solid-js/store'
+import { createSignal } from 'solid-js'
 
-import { pipe, subscribe, onEnd } from 'wonka'
+import { pipe, onEnd, subscribe } from 'wonka';
+
 
 import {
   TypedDocumentNode,
@@ -11,10 +11,9 @@ import {
   Operation,
 } from '@urql/core'
 
-import { Client } from '..'
 import { useClient } from '../context'
-import { createRequest } from './createRequest'
-import { initialState, computeNextState, hasDepsChanged } from './state'
+import { createStore, Store, unwrap } from 'solid-js/store';
+import { createRequest } from './createRequest';
 
 export interface CreateSubscriptionArgs<Variables = object, Data = any> {
   query: DocumentNode | TypedDocumentNode<Data, Variables> | string
@@ -25,25 +24,18 @@ export interface CreateSubscriptionArgs<Variables = object, Data = any> {
 
 export type SubscriptionHandler<T, R> = (prev: R | undefined, data: T) => R
 
-export interface CreateSubscriptionState<Data = any, Variables = object> {
+export interface CreateSubscriptionState<Data = any, Variables = any> {
   fetching: boolean
   stale: boolean
-  data?: Data
-  error?: CombinedError
-  extensions?: Record<string, any>
+  data?: Data | undefined
+  error?: CombinedError | undefined
+  extensions?: Record<string, any> | undefined
   operation?: Operation<Data, Variables>
 }
 
 export type CreateSubscriptionResponse<Data = any, Variables = object> = [
-  CreateSubscriptionState<Data, Variables>,
+  Store<CreateSubscriptionState<Data, Variables>>,
   (opts?: Partial<OperationContext>) => void
-]
-
-type Deps<Data = any, Variables = object> = readonly [
-  Client,
-  any,
-  Partial<OperationContext> | undefined,
-  boolean | undefined
 ]
 
 export function createSubscription<
@@ -51,91 +43,62 @@ export function createSubscription<
   Result = Data,
   Variables = object
 >(
-  args: CreateSubscriptionArgs<Variables, Data>,
+  _args: CreateSubscriptionArgs<Variables, Data>,
   handler?: SubscriptionHandler<Data, Result>
 ): CreateSubscriptionResponse<Result, Variables> {
-  const client = useClient()
-  const request = createRequest<Data, Variables>(args.query, args.variables)
 
-  let handlerRef: SubscriptionHandler<Data, Result> | undefined = handler
+  const iniitalState = {
+    fetching: false,
+    stale: false,
+    error: undefined,
+    data: undefined,
+    extensions: undefined,
+    operation: undefined,
+  };
 
-  const source = createMemo(() =>
-    !args.pause ? client.executeSubscription(request(), args.context) : null
-  )
 
-  const deps = [client, request, args.context, args.pause] as const
+  const client = useClient();
+  const [args] = createSignal(_args)
 
-  const [state, setState] = createStore(() => ({
-    source,
-    state: { ...initialState, fetching: !!source },
-    deps,
-  }))
+  const request = createRequest(args().query, args().variables);
 
-  let currentResult = state().state
-  if (source !== state().source && hasDepsChanged(state().deps, deps)) {
-    setState([
-      source(),
-      (currentResult = computeNextState(state().state, {
-        fetching: !!source,
-      })),
-      deps,
-    ])
-  }
+  const [state, setState] = createStore<CreateSubscriptionState>(iniitalState);
 
-  createEffect(() => {
-    const source = state().source
-
-    const updateResult = (
-      result: Partial<CreateSubscriptionState<Data, Variables>>
-    ) => {
-      untrack(() => {
-        setState((state) => {
-          const nextResult = computeNextState(state().state, result)
-          if (state().state === nextResult) return state
-          if (handlerRef && state().state.data !== nextResult.data) {
-            nextResult.data = handlerRef(
-              state().state.data,
-              nextResult.data!
-            ) as any
-          }
-
-          return {
-            source: state().source,
-            state: nextResult as any,
-            deps: state().deps,
-          }
-        })
-      })
-    }
-
-    if (source) {
-      const subscription = pipe(
-        source,
-        onEnd(() => {
-          updateResult({ fetching: false })
-        }) as any,
-        subscribe(updateResult)
-      )
-
-      return () => subscription.unsubscribe()
-    } else {
-      updateResult({ fetching: false })
-    }
-  })
-
-  // This is the imperative execute function passed to the user
-  const executeSubscription = (opts?: Partial<OperationContext>) => {
-    const source = client.executeSubscription(request(), {
-      ...args.context,
+  const createSource = (opts?: Partial<OperationContext>) =>
+    client.executeSubscription<Data, Variables>(request(), {
+      ...args().context,
       ...opts,
-    })
+    });
 
-    setState((state) => ({
+  const source = !args().pause ? createSource() : undefined
+
+
+  if (source) {
+    setState("fetching", true);
+    pipe(
       source,
-      state: state().state,
-      deps: state().deps,
-    }))
+      onEnd(() => {
+        setState("fetching", false)
+      }),
+      subscribe(result => {
+        setState("fetching", true);
+        const data =
+          result.data !== undefined
+            ? (typeof handler === 'function'
+              ? handler(state.data, result.data)
+              : result.data)
+            : (result.data as any)
+
+        setState("error", result?.error);
+        setState("data", data);
+        setState("operation", result.operation);
+        setState("extensions", result.extensions);
+        setState("stale", !!result.stale);
+      })
+    ).unsubscribe
+  } else {
+    setState("fetching", false);
   }
 
-  return [currentResult, executeSubscription]
+  return [unwrap(state), createSource]
 }
