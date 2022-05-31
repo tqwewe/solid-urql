@@ -1,9 +1,8 @@
 import { DocumentNode } from 'graphql'
-import { createEffect, createSignal } from 'solid-js'
+import { createSignal } from 'solid-js'
 
-import isEqual from 'lodash.isequal';
+import { pipe, onEnd, subscribe } from 'wonka';
 
-import { pipe, concat, fromValue, switchMap, map, scan } from 'wonka';
 
 import {
   TypedDocumentNode,
@@ -13,9 +12,8 @@ import {
 } from '@urql/core'
 
 import { useClient } from '../context'
-import { createRequest } from './createRequest'
-import { createSource } from './createSoruce'
-import { initialState } from './state'
+import { createStore, Store, unwrap } from 'solid-js/store';
+import { createRequest } from './createRequest';
 
 export interface CreateSubscriptionArgs<Variables = object, Data = any> {
   query: DocumentNode | TypedDocumentNode<Data, Variables> | string
@@ -26,17 +24,17 @@ export interface CreateSubscriptionArgs<Variables = object, Data = any> {
 
 export type SubscriptionHandler<T, R> = (prev: R | undefined, data: T) => R
 
-export interface CreateSubscriptionState<Data = any, Variables = object> {
+export interface CreateSubscriptionState<Data = any, Variables = any> {
   fetching: boolean
   stale: boolean
-  data?: Data
-  error?: CombinedError
-  extensions?: Record<string, any>
+  data?: Data | undefined
+  error?: CombinedError | undefined
+  extensions?: Record<string, any> | undefined
   operation?: Operation<Data, Variables>
 }
 
 export type CreateSubscriptionResponse<Data = any, Variables = object> = [
-  CreateSubscriptionState<Data, Variables>,
+  Store<CreateSubscriptionState<Data, Variables>>,
   (opts?: Partial<OperationContext>) => void
 ]
 
@@ -45,83 +43,62 @@ export function createSubscription<
   Result = Data,
   Variables = object
 >(
-  args: CreateSubscriptionArgs<Variables, Data>,
+  _args: CreateSubscriptionArgs<Variables, Data>,
   handler?: SubscriptionHandler<Data, Result>
 ): CreateSubscriptionResponse<Result, Variables> {
 
-  const client = useClient();
-  const request = createRequest<Data, Variables>(args.query, args.variables);
-
-  const makeSubscription$ = (opts?: Partial<OperationContext>) => {
-      return client.executeSubscription<Data, Variables>(request(), {
-        ...args.context,
-        ...opts,
-      });
+  const iniitalState = {
+    fetching: false,
+    stale: false,
+    error: undefined,
+    data: undefined,
+    extensions: undefined,
+    operation: undefined,
   };
 
-  // There is some weirdness happening with concat > pipe > fromValue
-  // so this keeps track of wether or not the fetching was started at some point
-  const [fetchingStarted, setFetchingStarted] = createSignal(false);
 
-  const subscription$ = args.pause ? null : makeSubscription$();
+  const client = useClient();
+  const [args] = createSignal(_args)
 
-  const [state$, update] = createSource(
-    subscription$,
-    ((subscription$$, prevState?: CreateSubscriptionState<Result, Variables>) => {
-      return pipe(
-        subscription$$,
-        switchMap((subscription$) => {
-          if (!subscription$) return fromValue({ fetching: false });
-          return concat([
-            // Initially set fetching to true
-            fromValue({ fetching: true, stale: false }),
-            pipe(
-              subscription$,
-              map(({ stale, data, error, extensions, operation }) => ({
-                fetching: true,
-                stale: !!stale,
-                data,
-                error,
-                extensions,
-                operation,
-              }))
-            ),
-            // When the source proactively closes, fetching is set to false
-            fromValue({ fetching: false, stale: false }),
-          ]);
-        }),
-        scan(
-          (result: CreateSubscriptionState<Result, Variables>, partial: any) => {
+  const request = createRequest(args().query, args().variables);
 
-            if (isEqual(partial, { fetching: true, stale: false })) {
-              if (!fetchingStarted()) {
-                setFetchingStarted(true);
-              } else if (result.data) {
-                partial.fetching = false;
-              }
-            }
+  const [state, setState] = createStore<CreateSubscriptionState>(iniitalState);
 
-            // If a handler has been passed, it's used to merge new data in
-            const data =
-              partial.data !== undefined
-                ? typeof handler === 'function'
-                  ? handler(result.data, partial.data)
-                  : partial.data
-                : result.data;
-            return { ...result, ...partial, data };
-          },
-          prevState || initialState
-        )
-      )
-    })
-  )
+  const createSource = (opts?: Partial<OperationContext>) =>
+    client.executeSubscription<Data, Variables>(request(), {
+      ...args().context,
+      ...opts,
+    });
 
-  createEffect(() => {
-    update(subscription$)
-  })
-
-  const executeSubscription = (opts?: Partial<OperationContext>) => update(makeSubscription$(opts));
+  const source = !args().pause ? createSource() : undefined
 
 
-  return [state$, executeSubscription]
+  if (source) {
+    setState("fetching", true);
+    pipe(
+      source,
+      onEnd(() => {
+        setState("fetching", false)
+      }),
+      subscribe(result => {
+        setState("fetching", true);
+        const data =
+          result.data !== undefined
+            ? (typeof handler === 'function'
+              ? handler(state.data, result.data)
+              : result.data)
+            : (result.data as any)
+
+        setState("error", result?.error);
+        setState("data", data);
+        setState("operation", result.operation);
+        setState("extensions", result.extensions);
+        setState("stale", !!result.stale);
+      })
+    ).unsubscribe
+  } else {
+    setState("fetching", false);
+  }
+
+  return [unwrap(state), createSource]
 }
